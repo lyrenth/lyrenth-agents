@@ -645,8 +645,8 @@ SITE_CATEGORIES = {"research", "comparison", "company", "docs", "content", "data
 MIN_PROMPT_CHARS = 200
 MIN_EXAMPLE_URLS = 2
 
-# Every field a shipped recipe must carry, including the two the dataclass
-# leaves optional because a half-written record should still import.
+# Every field anything shipped must carry, including url_hint, which the
+# dataclass leaves optional because a half-written record should still import.
 SHIPPED_TEXT_FIELDS = recipes_module.REQUIRED_TEXT_FIELDS + ("url_hint",)
 
 
@@ -665,18 +665,58 @@ def test_every_shipped_recipe_is_registered_under_its_own_slug():
         assert get(r.slug) is r, r.slug
 
 
+def shipped_recipes():
+    """The one-question recipes: everything shipped that has no steps."""
+    return [r for r in shipped() if getattr(r, "steps", None) is None]
+
+
+def shipped_flows():
+    """The agents that take several steps."""
+    return [r for r in shipped() if getattr(r, "steps", None)]
+
+
+def shipped_prompts():
+    """Every model instruction in the library, whichever kind it came from."""
+    out = []
+    for r in shipped_recipes():
+        out.append((r.slug, "system_prompt", r.system_prompt))
+        out.append((r.slug, "output_hint", r.output_hint))
+    for f in shipped_flows():
+        for step in f.steps:
+            for field in ("prompt", "output_hint"):
+                text = getattr(step, field, None)
+                if text:
+                    out.append((f"{f.slug}.{step.name}", field, text))
+    return out
+
+
 def test_every_shipped_recipe_has_every_field_filled():
     for r in shipped():
         for f in SHIPPED_TEXT_FIELDS:
+            assert str(getattr(r, f, "") or "").strip(), f"{r.slug}: {f} is empty"
+    for r in shipped_recipes():
+        for f in ("system_prompt", "output_hint"):
             assert str(getattr(r, f, "") or "").strip(), f"{r.slug}: {f} is empty"
 
 
 def test_every_shipped_prompt_is_long_enough_to_say_something():
     # A one line prompt ("summarise the following") produces output nobody
     # keeps. The length is a floor to catch a thin recipe, not a target.
-    for r in shipped():
-        length = len(r.system_prompt.strip())
-        assert length >= MIN_PROMPT_CHARS, f"{r.slug}: system_prompt is {length} characters"
+    # Output hints are allowed to be short: they describe a shape.
+    for where, field, text in shipped_prompts():
+        if field != "prompt" and field != "system_prompt":
+            continue
+        assert len(text.strip()) >= MIN_PROMPT_CHARS, f"{where}: {field} is {len(text.strip())} characters"
+
+
+def test_every_shipped_flow_is_one_a_runner_will_accept():
+    # A flow that cannot run is caught here rather than by the first person
+    # who pastes its command off the website.
+    from lyrenth_agents.flow import Think, validate
+
+    for f in shipped_flows():
+        validate(f)
+        assert any(isinstance(s, Think) for s in f.steps), f"{f.slug}: nothing thinks"
 
 
 def test_every_shipped_recipe_carries_example_urls_that_can_be_pasted():
@@ -698,12 +738,12 @@ def test_every_shipped_category_is_one_the_site_can_draw():
 def test_no_shipped_recipe_text_carries_a_long_dash():
     # House rule for the whole repository: no em-dash and no en-dash anywhere.
     # This text is printed in the terminal and copied onto the site, so the
-    # rule is checked here rather than trusted.
-    for r in shipped():
-        for f in SHIPPED_TEXT_FIELDS:
-            text = str(getattr(r, f, "") or "")
-            for bad, name in (("—", "em dash"), ("–", "en dash")):
-                assert bad not in text, f"{r.slug}: {f} contains an {name}"
+    # rule is checked here rather than trusted. Step prompts count: they are
+    # instructions to a model, and a model copies the punctuation it is given.
+    checked = [(r.slug, f, str(getattr(r, f, "") or "")) for r in shipped() for f in SHIPPED_TEXT_FIELDS]
+    for where, field, text in checked + shipped_prompts():
+        for bad, name in (("\u2014", "em dash"), ("\u2013", "en dash")):
+            assert bad not in text, f"{where}: {field} contains an {name}"
 
 
 

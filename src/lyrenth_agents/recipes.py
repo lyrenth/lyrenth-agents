@@ -33,6 +33,9 @@ __all__ = [
 # Every field a recipe must carry. Checked when one is registered, so a
 # half-written record is refused at import time instead of producing an agent
 # that runs with an empty prompt.
+# What anything in the registry has to say about itself, whether it is a
+# one-question recipe or a flow with several steps. The command line and the
+# website both print exactly these fields.
 REQUIRED_TEXT_FIELDS = (
     "slug",
     "name",
@@ -40,9 +43,11 @@ REQUIRED_TEXT_FIELDS = (
     "tagline",
     "what_you_give",
     "what_you_get",
-    "system_prompt",
-    "output_hint",
 )
+
+# A one-question recipe carries its instructions directly. A flow carries
+# steps instead, and its instructions live in those. One of the two.
+RECIPE_ONLY_FIELDS = ("system_prompt", "output_hint")
 
 
 @dataclass
@@ -93,14 +98,26 @@ def load_error() -> Optional[str]:
     return _LOAD_ERROR
 
 
-def register(recipe: Recipe) -> Recipe:
-    """Put one recipe in the registry, refusing anything malformed."""
-    if not isinstance(recipe, Recipe):
-        raise TypeError(f"expected a Recipe, got {type(recipe).__name__}")
+def register(recipe):
+    """Put one recipe or flow in the registry, refusing anything malformed.
+
+    Flows are not imported here on purpose. This module is imported by the
+    engine, which the flow module imports in turn, so asking for the Flow
+    type here would be a circle. A record is a flow if it carries steps, and
+    a recipe if it carries the instructions itself; anything with neither is
+    refused by name rather than by type.
+    """
+    steps = getattr(recipe, "steps", None)
+    if not isinstance(recipe, Recipe) and steps is None:
+        raise TypeError(f"expected a Recipe or a Flow, got {type(recipe).__name__}")
     missing = [f for f in REQUIRED_TEXT_FIELDS if not str(getattr(recipe, f, "") or "").strip()]
+    if steps is None:
+        missing += [f for f in RECIPE_ONLY_FIELDS if not str(getattr(recipe, f, "") or "").strip()]
+    elif not steps:
+        missing.append("steps")
     if missing:
         raise ValueError(
-            f"recipe {recipe.slug or '(no slug)'!r} is missing: {', '.join(missing)}"
+            f"recipe {getattr(recipe, 'slug', '') or '(no slug)'!r} is missing: {', '.join(missing)}"
         )
     if recipe.slug in REGISTRY:
         raise ValueError(f"two recipes share the slug {recipe.slug!r}")

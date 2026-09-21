@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lyrenth-agents"
-version = "0.1.0"
-description = "A library of small agents that read the web through Lyrenth: pick a recipe, give it URLs, get a cited answer."
+version = "0.2.0"
+description = "Agents that read the web through Lyrenth and finish the job: one command, cited answers, and steps that can write the result to a file."
 requires-python = ">=3.9"
 license = "MIT"
 authors = [{ name = "Lyrenth" }]

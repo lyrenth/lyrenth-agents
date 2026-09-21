@@ -36,11 +36,16 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence
 
 from lyrenth import Lyrenth
 
-from .recipes import Recipe
+# Type only. Importing the recipe module here at run time would make a
+# circle once flows joined the library: recipes loads the library, the
+# library holds flows, and a flow needs this engine. Every use of Recipe
+# below is an annotation, and annotations are strings in this file.
+if TYPE_CHECKING:  # pragma: no cover
+    from .recipes import Recipe
 
 __all__ = [
     "AgentResult",
@@ -127,7 +132,7 @@ class AgentResult:
     when no model was configured.
     """
 
-    recipe: Recipe
+    recipe: "Recipe"
     prompt: str
     requested_urls: List[str] = field(default_factory=list)
     sources: List[Source] = field(default_factory=list)

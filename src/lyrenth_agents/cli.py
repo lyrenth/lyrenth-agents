@@ -30,6 +30,7 @@ from .engine import (
     model_is_configured,
     read_for,
 )
+from .flow import FlowError, run_flow
 from .recipes import UnknownRecipe, all_recipes, get, load_error
 
 
@@ -81,6 +82,18 @@ def _parser() -> argparse.ArgumentParser:
             "what to ask of these pages. The answers and research recipes need "
             "one; the rest ignore it."
         ),
+    )
+    p.add_argument(
+        "--yes",
+        action="store_true",
+        help="perform the steps that act on the world. Without it they say what they would do and stop.",
+    )
+    p.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="STEP.KEY=VALUE",
+        help="change one setting of an acting step, for example --set file.path=notes/pack.md",
     )
     p.add_argument("--model-url", help="OpenAI-compatible base URL (default: LLM_BASE_URL)")
     p.add_argument("--model", help="model name (default: LLM_MODEL)")
@@ -213,6 +226,153 @@ def _payload(result) -> dict:
     }
 
 
+def _overrides(pairs) -> dict:
+    """Turn --set file.path=x into {"file": {"path": "x"}}.
+
+    This is the only way an acting step's settings change at run time, and it
+    comes from the person at the keyboard. Nothing a model wrote can reach it.
+    """
+    out: dict = {}
+    for pair in pairs or []:
+        if "=" not in pair or "." not in pair.split("=", 1)[0]:
+            raise ValueError(f"--set wants STEP.KEY=VALUE, got {pair!r}")
+        target, value = pair.split("=", 1)
+        step, key = target.split(".", 1)
+        out.setdefault(step.strip(), {})[key.strip()] = value.strip()
+    return out
+
+
+def _flow_payload(flow, result) -> dict:
+    return {
+        "recipe": flow.slug,
+        "answer": result.answer,
+        "stopped_at": result.stopped_at,
+        "stopped_reason": result.stopped_reason,
+        "steps": [
+            {
+                "name": s.name,
+                "kind": s.kind,
+                "text": s.text,
+                "prompt": s.prompt,
+                "model_used": s.model_used,
+                "performed": s.performed,
+                "note": s.note,
+                "cited": s.cited,
+                "unknown_citations": s.unknown_citations,
+            }
+            for s in result.steps
+        ],
+        "sources": [
+            {"n": i, "title": s.title, "url": s.url, "read": s.fetched_at, "tokens": s.tokens}
+            for i, s in enumerate(result.sources, 1)
+        ],
+        "skipped": [asdict(s) for s in result.skipped],
+    }
+
+
+def _run_flow_cli(flow, args) -> int:
+    """Run an agent that has several steps, reporting each one as it lands."""
+    err = sys.stderr
+    print(f"recipe   {flow.slug}: {flow.name}", file=err)
+
+    try:
+        overrides = _overrides(args.set)
+    except ValueError as e:
+        print(f"error: {e}", file=err)
+        return 2
+
+    missing_half = model_half_configured(args.model_url, args.model)
+    if missing_half:
+        print(f"error: the model setup is missing {missing_half}", file=err)
+        return 2
+
+    def report(step) -> None:
+        # The read step is reported once the run returns, with the same lines
+        # the one-question path prints. Thinking and acting are reported as
+        # they land, because a four step flow otherwise goes quiet for a
+        # minute and looks stuck.
+        if step.kind == "read":
+            return
+        if step.kind == "think":
+            if step.model_used:
+                print(f"step     {step.name}: {len(step.text):,} characters", file=err)
+            return
+        if step.performed:
+            print(f"step     {step.name}: {step.text}", file=err)
+        else:
+            print(f"step     {step.name}: {step.text or step.note}", file=err)
+
+    try:
+        result = run_flow(
+            flow,
+            args.urls,
+            client=Lyrenth(),
+            token_budget=args.budget,
+            fresh=args.fresh,
+            question=args.question,
+            base_url=args.model_url,
+            model=args.model,
+            confirm=args.yes,
+            overrides=overrides,
+            on_step=report,
+        )
+    except FlowError as e:
+        print(f"error: {e}", file=err)
+        return 2
+    except LyrenthError as e:
+        print(f"error: {e}", file=err)
+        return 1
+    except ModelError as e:
+        print(f"error: {e}", file=err)
+        return 1
+
+    for s in result.skipped:
+        print(f"skipped  {s.url}: {s.reason}", file=err)
+    for i, s in enumerate(result.sources, 1):
+        label = f"{s.title}  " if s.title else ""
+        print(f"read [{i}] {label}{s.tokens:,} tokens  {s.url}", file=err)
+    if result.sources:
+        line = f"context  {result.tokens:,} tokens from {len(result.sources)} sources"
+        if result.raw_html_tokens:
+            line += f" (raw HTML would be {result.raw_html_tokens:,})"
+        print(line, file=err)
+
+    if args.json:
+        print(json.dumps(_flow_payload(flow, result), indent=2))
+        return 0 if result.answer else 1
+
+    if not result.sources:
+        print(f"error: {result.stopped_reason}", file=err)
+        return 1
+
+    if result.stopped_at and result.answer is None:
+        # No model: hand over the prompt for the step it stopped at, which is
+        # the same bargain the one-question agents make.
+        stopped = result.steps[-1]
+        print(stopped.prompt)
+        _flush(sys.stdout)
+        print("", file=err)
+        print(result.stopped_reason, file=err)
+        return 0
+
+    print(result.answer)
+    print("", file=sys.stdout)
+    print("Sources", file=sys.stdout)
+    cited = {n for s in result.steps for n in s.cited}
+    for i, s in enumerate(result.sources, 1):
+        mark = "" if i in cited else "  (not cited)"
+        label = f"{s.title}  " if s.title else ""
+        print(f"  [{i}] {label}{s.url}{mark}", file=sys.stdout)
+
+    waiting = [s for s in result.steps if s.kind == "act" and not s.performed and s.text]
+    if waiting:
+        print("", file=err)
+        for s in waiting:
+            print(f"not done yet: {s.text}", file=err)
+        print("add --yes to the same command to do it.", file=err)
+    return 0
+
+
 # ------------------------------------------------------------------ main
 
 
@@ -235,6 +395,12 @@ def main(argv=None) -> int:
     if not args.urls:
         _recipe_card(recipe)
         return 2
+
+    # An agent with steps runs through the flow engine. A one-question recipe
+    # keeps its own path, which is that same engine with one step, kept
+    # separate while flows are new.
+    if getattr(recipe, "steps", None):
+        return _run_flow_cli(recipe, args)
 
     # Reading first, on its own. Whatever happens with a model afterwards, the
     # pages are read and the prompt exists.

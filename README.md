@@ -95,6 +95,48 @@ came from.
    reason, and a citation pointing at a source number that does not exist
    is flagged.
 
+## Agents with more than one step
+
+Some jobs are not one question. An agent can be written as a short list of
+steps that pass their work along, so it can read, then think about what it
+read, then do something with the result.
+
+```bash
+uvx lyrenth-agents company-pack \
+  https://www.mozilla.org/en-US/about/ \
+  https://www.mozilla.org/en-US/about/manifesto/ \
+  https://www.mozilla.org/en-US/careers/
+```
+
+```text
+recipe   company-pack: Company pack
+step     brief: 2,967 characters
+step     pack: 1,563 characters
+step     file: would write company-pack.md (1,563 bytes, 18 lines)
+read [1] Learn about Mozilla  1,402 tokens  https://www.mozilla.org/en-US/about/
+read [2] The Mozilla Manifesto  2,051 tokens  https://www.mozilla.org/en-US/about/manifesto/
+read [3] Mozilla Careers  3,211 tokens  https://www.mozilla.org/en-US/careers/
+context  6,664 tokens from 3 sources (raw HTML would be 50,413)
+
+not done yet: would write company-pack.md (1,563 bytes, 18 lines)
+add --yes to the same command to do it.
+```
+
+Three things to notice, because they are the rules the whole thing is
+built on:
+
+1. **The pages are read once.** The second step works from what the first
+   one wrote. It is not handed the pages again, and it does not pay to
+   read them again. It is handed the numbered list of sources, so the
+   citations it carries forward still point at the right page.
+2. **Nothing happened.** A step that acts on the world says what it would
+   do and stops. `--yes` performs it. A command you pasted from a website
+   never writes, sends or posts on its own.
+3. **The model never chose the destination.** The path came from the agent
+   and can be changed by you (`--set file.path=meeting/mozilla.md`), never
+   by the text on a page that was read. A page can contain any sentence at
+   all, including one addressed to your model.
+
 ## Write your own
 
 A recipe is data: the instructions for the model and the shape of the
