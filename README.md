@@ -1,6 +1,6 @@
 # lyrenth-agents
 
-Ten agents that read the web and finish the job.
+Eleven agents that read the web and finish the job.
 
 Give one a few URLs and it hands back the thing you actually wanted: a
 comparison table, a brief on a company, the answer to a documentation
@@ -20,6 +20,12 @@ uvx lyrenth-agents compare \
   https://en.wikipedia.org/wiki/MySQL
 ```
 
+`uvx` comes with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+`brew install uv` on a Mac, or the one-line installer for any system.
+Without uv, put `pipx run` in place of `uvx`, or run
+`pip install lyrenth-agents` inside a virtual environment. Python 3.9 or
+newer.
+
 With that key alone, the agent reads the pages and prints the finished
 prompt with its numbered sources, ready to paste into whichever assistant
 you already use. Point it at a model and it answers on its own:
@@ -30,12 +36,13 @@ export LLM_MODEL=your-model-name
 export LLM_API_KEY=...
 ```
 
-## The ten
+## The eleven
 
 | Command | Give it | Get back |
 |---|---|---|
 | `compare` | Two or more product pages | One table of what is actually different |
 | `brief` | A company's own pages | What they do, who they sell to, and what their pages never answer |
+| `company-pack` | A company's own pages | A one-page pack for the meeting, written to a file when you add `--yes` |
 | `answers -q "..."` | The documentation that should hold the answer | The answer with the page and heading behind every line |
 | `research -q "..."` | The pages you trust | Plain prose with a number on every claim |
 | `summarise` | A long article | What it claims, what that rests on, what it leaves out |
