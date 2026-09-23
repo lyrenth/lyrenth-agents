@@ -839,6 +839,22 @@ def test_a_short_page_hands_its_leftover_to_a_long_one():
     assert [s.trimmed for s in g.sources] == [False, True]
 
 
+def test_options_may_sit_before_between_or_after_the_urls():
+    # The site prints `lyrenth-agents answers -q "..." URL URL`. On Python 3.9,
+    # the oldest this package supports, a plain parse_args refused that with
+    # "unrecognized arguments", and on every version it refused an option
+    # placed between two URLs.
+    for argv in (
+        ["test-summary", "-q", "Why?", A, B],
+        ["test-summary", A, "-q", "Why?", B],
+        ["test-summary", A, B, "-q", "Why?"],
+    ):
+        with installed(SUMMARY), fake_reader():
+            code, out, err = run_cli(argv)
+        assert code == 0, (argv, err)
+        assert "Question: Why?" in out and "[2] Page B" in out, argv
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for t in tests:

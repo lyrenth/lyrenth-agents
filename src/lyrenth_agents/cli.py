@@ -377,7 +377,11 @@ def _run_flow_cli(flow, args) -> int:
 
 
 def main(argv=None) -> int:
-    args = _parser().parse_args(argv)
+    # Intermixed, so an option may sit before, between or after the URLs.
+    # Plain parse_args refused `answers -q "..." URL URL` on Python 3.9,
+    # the form the site prints, and an option between two URLs on every
+    # version (2026-09-24).
+    args = _parser().parse_intermixed_args(argv)
 
     if args.list:
         return _list_recipes(as_json=args.json)
