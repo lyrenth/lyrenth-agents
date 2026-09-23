@@ -16,7 +16,7 @@ to paste into any assistant. Configure one with LLM_BASE_URL and LLM_MODEL
 (any OpenAI-compatible endpoint) to have the engine answer directly.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from .engine import (  # noqa: E402
     AgentResult,
